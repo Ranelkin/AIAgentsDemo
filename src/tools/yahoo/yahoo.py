@@ -57,7 +57,7 @@ def trading_data(ticker: yf.Ticker):
         }
     }
     
-def retrieve_yahoo_data(ticker: str): 
+def retrieve_yahoo_data(ticker: str):
     yfTicker = yf.Ticker(ticker)
     sentiment_data = sentiment(yfTicker)
     td = trading_data(yfTicker)
@@ -74,9 +74,9 @@ def retrieve_yahoo_data(ticker: str):
             'month': price['Month'],   # month
             'year': price['Year'],     # year
             'high': price['High'],              # days high
-            'low' : price['Low'],               # days low 
+            'low' : price['Low'],               # days low
             'open': price['Open'],              # days open
-            'close': price['Close']             # days close 
+            'close': price['Close']             # days close
         },
         'volume': {
             '1d' : volume['1d'],
@@ -84,7 +84,93 @@ def retrieve_yahoo_data(ticker: str):
             '1y': volume['1y']
         }
     }
-  
+
     return data
+
+
+def format_valuation_context(data: dict) -> str:
+    """Format Yahoo price/volume data into a rich context string for the Valuation agent."""
+    lines = []
+
+    # Current day OHLC
+    lines.append(f"Current Day Prices:")
+    lines.append(f"  Open: ${data['price']['open']:.2f}")
+    lines.append(f"  High: ${data['price']['high']:.2f}")
+    lines.append(f"  Low:  ${data['price']['low']:.2f}")
+    lines.append(f"  Close: ${data['price']['close']:.2f}")
+
+    # 1-month trend
+    month_df = data['price']['month']
+    if month_df is not None and len(month_df) > 1:
+        month_start = float(month_df['Open'].iloc[0])
+        month_end = float(month_df['Open'].iloc[-1])
+        month_pct = ((month_end - month_start) / month_start) * 100
+        month_high = float(month_df['Open'].max())
+        month_low = float(month_df['Open'].min())
+        month_avg_vol = float(data['volume']['1mo'].mean())
+        lines.append(f"\n1-Month Trend ({len(month_df)} trading days):")
+        lines.append(f"  Start: ${month_start:.2f} → End: ${month_end:.2f} ({month_pct:+.1f}%)")
+        lines.append(f"  Month High: ${month_high:.2f} | Month Low: ${month_low:.2f}")
+        lines.append(f"  Avg Daily Volume: {month_avg_vol:,.0f} shares")
+
+    # 1-year trend
+    year_df = data['price']['year']
+    if year_df is not None and len(year_df) > 1:
+        year_start = float(year_df['Open'].iloc[0])
+        year_end = float(year_df['Open'].iloc[-1])
+        year_pct = ((year_end - year_start) / year_start) * 100
+        year_high = float(year_df['Open'].max())
+        year_low = float(year_df['Open'].min())
+        year_avg_vol = float(data['volume']['1y'].mean())
+        lines.append(f"\n1-Year Trend ({len(year_df)} trading days):")
+        lines.append(f"  Start: ${year_start:.2f} → End: ${year_end:.2f} ({year_pct:+.1f}%)")
+        lines.append(f"  52-Week High: ${year_high:.2f} | 52-Week Low: ${year_low:.2f}")
+        lines.append(f"  Avg Daily Volume: {year_avg_vol:,.0f} shares")
+
+    return "\n".join(lines)
+
+
+def format_sentiment_context(data: dict) -> str:
+    """Format Yahoo sentiment/news data into a rich context string for the Sentiment agent."""
+    lines = []
+
+    # Overall sentiment
+    mean_sent = data['sentiment']['mean']
+    if mean_sent > 0.2:
+        label = "Bullish"
+    elif mean_sent < -0.2:
+        label = "Bearish"
+    else:
+        label = "Neutral"
+    lines.append(f"Overall Sentiment Score: {mean_sent:.2f} (scale: -1.0 bearish to +1.0 bullish) — {label}")
+
+    # News headlines with individual scores
+    news = data['sentiment']['news']
+    if news:
+        lines.append(f"\nRecent News ({len(news)} articles):")
+        for i, article in enumerate(news[:10]):
+            content = article.get('content', {})
+            title = content.get('title', 'N/A') if isinstance(content, dict) else str(content)
+            score = analyzer.polarity_scores(title)['compound'] if title != 'N/A' else 0.0
+            lines.append(f"  {i+1}. \"{title}\" (sentiment: {score:+.2f})")
+
+    # Analyst price targets
+    targets = data['sentiment']['price_targets']
+    if targets is not None:
+        try:
+            lines.append(f"\nAnalyst Price Targets:")
+            lines.append(f"  Low:    ${targets.get('low', 'N/A')}")
+            lines.append(f"  Mean:   ${targets.get('mean', 'N/A')}")
+            lines.append(f"  Median: ${targets.get('median', 'N/A')}")
+            lines.append(f"  High:   ${targets.get('high', 'N/A')}")
+            lines.append(f"  Current: ${targets.get('current', 'N/A')}")
+            num_analysts = targets.get('numberOfAnalystOpinions', 'N/A')
+            lines.append(f"  Number of Analysts: {num_analysts}")
+        except (AttributeError, TypeError):
+            lines.append(f"\nAnalyst Price Targets: Not available")
+    else:
+        lines.append(f"\nAnalyst Price Targets: Not available")
+
+    return "\n".join(lines)
 
 
